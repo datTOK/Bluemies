@@ -6,6 +6,7 @@ import os
 
 
 MEMORY_FILE = "memory.json"
+MODEL_NAME = "qwen3:4b"
 
 
 # ============================================================
@@ -25,7 +26,8 @@ current_time = now.strftime("%H:%M:%S %Z")
 SYSTEM_PROMPT = f"""
 You are my personal AI assistant.
 
-Your name is Odysseus.
+Your name is Bluemies.
+
 Be helpful, accurate, and honest.
 Keep your answers clear and concise.
 
@@ -76,26 +78,40 @@ def save_memory(messages):
 
 
 # ============================================================
-# INTELLIGENT QUERY ROUTER
+# INTELLIGENT TOOL ROUTER
 # ============================================================
 
-def needs_web_search(text):
+def route_request(text):
     router_prompt = f"""
-You are a query router.
+You are the routing system for a local AI assistant.
 
-Your ONLY job is to decide whether the user's question requires
-a web search.
+Your job is to decide what type of action is appropriate for the
+user's request.
 
-Return ONLY one word:
+Return ONLY ONE of these labels:
 
-YES
+CHAT
+WEB
+CALCULATE
+CODE
+FILE
 
-or
+Rules:
 
-NO
+CHAT
+Use CHAT for:
+- General questions
+- Explanations
+- Casual conversation
+- Writing
+- Translation
+- Brainstorming
+- General knowledge that does not require current information
 
-Return YES when the question requires:
-- Current or recent information
+WEB
+Use WEB when the question requires:
+- Current information
+- Recent information
 - News
 - Today's information
 - Current prices
@@ -103,27 +119,45 @@ Return YES when the question requires:
 - Current sports information
 - Current political information
 - Current products or technology
+- Current information about people, companies, games, events, etc.
 - Information that may have changed since your training data
-- Information about a person, company, product, event, or other
-  topic where the user is asking about its current status
 
-Return NO when the question is:
-- General knowledge
+CALCULATE
+Use CALCULATE when the user wants:
+- Arithmetic
+- Mathematical calculations
+- Unit conversions
+- Numerical calculations
+
+CODE
+Use CODE when the user wants:
+- Code written
+- Code explained
+- Code debugged
 - Programming help
-- Mathematics
-- Writing
-- Translation
-- Casual conversation
-- A question that does not require current information
+- A script
+- A programming solution
 
-User question:
+FILE
+Use FILE when the user wants to:
+- Read a file
+- Analyze a file
+- Search a file
+- Modify a file
+- Work with a document or local file
+
+Important:
+Return ONLY the label.
+Do not explain your decision.
+
+User request:
 {text}
 
-Answer:
+Label:
 """
 
     response = chat(
-        model="qwen3:4b",
+        model=MODEL_NAME,
         messages=[
             {
                 "role": "user",
@@ -134,9 +168,26 @@ Answer:
 
     decision = response.message.content.strip().upper()
 
-    print(f"[Router decision: {decision}]")
+    # Remove accidental punctuation or extra text
+    decision = decision.replace(".", "").replace(":", "").strip()
 
-    return decision.startswith("YES")
+    valid_routes = {
+        "CHAT",
+        "WEB",
+        "CALCULATE",
+        "CODE",
+        "FILE"
+    }
+
+    if decision in valid_routes:
+        return decision
+
+    # If Qwen returns something unexpected,
+    # safely fall back to normal conversation.
+    print(f"[Router] Unexpected decision: {decision}")
+    print("[Router] Falling back to CHAT.")
+
+    return "CHAT"
 
 
 # ============================================================
@@ -186,8 +237,8 @@ messages = load_memory()
 # PROGRAM START
 # ============================================================
 
-print("Local AI Chat")
-print("Intelligent web search is enabled.")
+print("Bluemies - Local AI")
+print("Intelligent tool routing is enabled.")
 print("Type 'exit' to quit.")
 print()
 
@@ -216,17 +267,26 @@ while True:
 
 
     # --------------------------------------------------------
-    # ASK ROUTER
+    # ROUTE THE REQUEST
     # --------------------------------------------------------
 
-    if needs_web_search(user_input):
+    route = route_request(user_input)
 
-        print("[Router] This question may require current information.")
+    print(f"[Router] Selected route: {route}")
+
+
+    # ========================================================
+    # WEB ROUTE
+    # ========================================================
+
+    if route == "WEB":
+
+        print("[Router] This question requires current information.")
 
         search_results = web_search(user_input)
 
 
-        # Add the original user question
+        # Add original user question
         messages.append(
             {
                 "role": "user",
@@ -262,10 +322,107 @@ Now answer the user's original question using the search results.
         )
 
 
+    # ========================================================
+    # CALCULATE ROUTE
+    # ========================================================
+
+    elif route == "CALCULATE":
+
+        print("[Router] Calculation detected.")
+        print("[Tool] Calculator is not implemented yet.")
+
+        messages.append(
+            {
+                "role": "user",
+                "content": user_input
+            }
+        )
+
+        messages.append(
+            {
+                "role": "user",
+                "content": """
+The user requested a calculation.
+
+A dedicated calculator tool is not implemented yet.
+Answer the calculation as accurately as possible using your
+normal reasoning.
+
+Do not claim that a calculator tool was used.
+"""
+            }
+        )
+
+
+    # ========================================================
+    # CODE ROUTE
+    # ========================================================
+
+    elif route == "CODE":
+
+        print("[Router] Programming request detected.")
+
+        messages.append(
+            {
+                "role": "user",
+                "content": user_input
+            }
+        )
+
+        messages.append(
+            {
+                "role": "user",
+                "content": """
+The user is asking for programming or coding help.
+
+Provide a clear and useful programming answer.
+Include code when appropriate.
+
+Do not claim that an external code execution tool was used.
+"""
+            }
+        )
+
+
+    # ========================================================
+    # FILE ROUTE
+    # ========================================================
+
+    elif route == "FILE":
+
+        print("[Router] File operation detected.")
+        print("[Tool] File tools are not implemented yet.")
+
+        messages.append(
+            {
+                "role": "user",
+                "content": user_input
+            }
+        )
+
+        messages.append(
+            {
+                "role": "user",
+                "content": """
+The user requested a file-related operation.
+
+A dedicated file tool is not implemented yet.
+Explain what information or file would be needed to complete
+the request.
+
+Do not claim that you accessed a file if you did not.
+"""
+            }
+        )
+
+
+    # ========================================================
+    # CHAT ROUTE
+    # ========================================================
+
     else:
 
-        print("[Router] No web search needed.")
-
+        print("[Router] Normal conversation.")
 
         messages.append(
             {
@@ -275,14 +432,14 @@ Now answer the user's original question using the search results.
         )
 
 
-    # --------------------------------------------------------
+    # ========================================================
     # ASK QWEN
-    # --------------------------------------------------------
+    # ========================================================
 
     print("AI: ", end="", flush=True)
 
     stream = chat(
-        model="qwen3:4b",
+        model=MODEL_NAME,
         messages=messages,
         stream=True
     )
@@ -291,9 +448,9 @@ Now answer the user's original question using the search results.
     assistant_message = ""
 
 
-    # --------------------------------------------------------
+    # ========================================================
     # STREAM RESPONSE
-    # --------------------------------------------------------
+    # ========================================================
 
     for chunk in stream:
 
@@ -312,9 +469,9 @@ Now answer the user's original question using the search results.
     print()
 
 
-    # --------------------------------------------------------
+    # ========================================================
     # SAVE ASSISTANT RESPONSE
-    # --------------------------------------------------------
+    # ========================================================
 
     messages.append(
         {
@@ -324,8 +481,8 @@ Now answer the user's original question using the search results.
     )
 
 
-    # --------------------------------------------------------
+    # ========================================================
     # SAVE MEMORY
-    # --------------------------------------------------------
+    # ========================================================
 
     save_memory(messages)
