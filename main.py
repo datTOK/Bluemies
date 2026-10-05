@@ -3,6 +3,8 @@ from ddgs import DDGS
 from datetime import datetime
 import json
 import os
+import ast
+import operator
 
 
 MEMORY_FILE = "memory.json"
@@ -41,7 +43,7 @@ Do not assume that the current year is the year from your training data.
 When web search results are provided:
 - Treat the web search results as newer than your training knowledge.
 - Use the web results to answer questions about current or recent information.
-- Do not replace newer web information with older information from your training memory.
+- Do not replace newer web information with older information from your training data.
 - Pay attention to dates in the search results.
 - If the results conflict with your previous knowledge, prefer newer reliable web sources.
 - Do not invent information that is not supported by the search results.
@@ -55,8 +57,15 @@ Do not claim that you searched the web unless search results were actually provi
 # ============================================================
 
 def load_memory():
+
     if os.path.exists(MEMORY_FILE):
-        with open(MEMORY_FILE, "r", encoding="utf-8") as file:
+
+        with open(
+            MEMORY_FILE,
+            "r",
+            encoding="utf-8"
+        ) as file:
+
             return json.load(file)
 
     return [
@@ -68,7 +77,13 @@ def load_memory():
 
 
 def save_memory(messages):
-    with open(MEMORY_FILE, "w", encoding="utf-8") as file:
+
+    with open(
+        MEMORY_FILE,
+        "w",
+        encoding="utf-8"
+    ) as file:
+
         json.dump(
             messages,
             file,
@@ -82,6 +97,7 @@ def save_memory(messages):
 # ============================================================
 
 def route_request(text):
+
     router_prompt = f"""
 You are the routing system for a local AI assistant.
 
@@ -168,8 +184,13 @@ Label:
 
     decision = response.message.content.strip().upper()
 
-    # Remove accidental punctuation or extra text
-    decision = decision.replace(".", "").replace(":", "").strip()
+    decision = decision.replace(
+        ".",
+        ""
+    ).replace(
+        ":",
+        ""
+    ).strip()
 
     valid_routes = {
         "CHAT",
@@ -180,14 +201,149 @@ Label:
     }
 
     if decision in valid_routes:
+
         return decision
 
-    # If Qwen returns something unexpected,
-    # safely fall back to normal conversation.
-    print(f"[Router] Unexpected decision: {decision}")
-    print("[Router] Falling back to CHAT.")
+    print(
+        f"[Router] Unexpected decision: {decision}"
+    )
+
+    print(
+        "[Router] Falling back to CHAT."
+    )
 
     return "CHAT"
+
+
+# ============================================================
+# CALCULATOR
+# ============================================================
+
+def calculate(expression):
+
+    allowed_operators = {
+        ast.Add: operator.add,
+        ast.Sub: operator.sub,
+        ast.Mult: operator.mul,
+        ast.Div: operator.truediv,
+        ast.Pow: operator.pow,
+        ast.Mod: operator.mod,
+        ast.USub: operator.neg,
+        ast.UAdd: operator.pos,
+    }
+
+    def evaluate(node):
+
+        # Numbers
+        if isinstance(node, ast.Constant):
+
+            if isinstance(
+                node.value,
+                (int, float)
+            ):
+
+                return node.value
+
+            raise ValueError(
+                "Invalid value."
+            )
+
+        # Binary operations
+        if isinstance(node, ast.BinOp):
+
+            left = evaluate(
+                node.left
+            )
+
+            right = evaluate(
+                node.right
+            )
+
+            operator_function = allowed_operators.get(
+                type(node.op)
+            )
+
+            if operator_function is None:
+
+                raise ValueError(
+                    "Operator not allowed."
+                )
+
+            return operator_function(
+                left,
+                right
+            )
+
+        # Unary operations
+        if isinstance(node, ast.UnaryOp):
+
+            operand = evaluate(
+                node.operand
+            )
+
+            operator_function = allowed_operators.get(
+                type(node.op)
+            )
+
+            if operator_function is None:
+
+                raise ValueError(
+                    "Operator not allowed."
+                )
+
+            return operator_function(
+                operand
+            )
+
+        raise ValueError(
+            "Invalid expression."
+        )
+
+    tree = ast.parse(
+        expression,
+        mode="eval"
+    )
+
+    return evaluate(
+        tree.body
+    )
+
+
+# ============================================================
+# CLEAN CALCULATOR INPUT
+# ============================================================
+
+def clean_calculation_expression(text):
+
+    expression = text.strip()
+
+    # Remove common phrases at the beginning
+    prefixes = [
+        "calculate ",
+        "what is ",
+        "what's ",
+        "compute ",
+        "solve "
+    ]
+
+    expression_lower = expression.lower()
+
+    for prefix in prefixes:
+
+        if expression_lower.startswith(prefix):
+
+            expression = expression[
+                len(prefix):
+            ].strip()
+
+            break
+
+    # Remove common question punctuation
+    expression = expression.rstrip(
+        "?.!"
+    ).strip()
+
+    return expression
 
 
 # ============================================================
@@ -195,24 +351,36 @@ Label:
 # ============================================================
 
 def web_search(query):
-    print("\n[Tool] Searching the web...")
+
+    print(
+        "\n[Tool] Searching the web..."
+    )
 
     try:
+
         results = DDGS().text(
             query,
             max_results=5
         )
 
     except Exception as error:
-        print(f"[Tool] Search failed: {error}")
+
+        print(
+            f"[Tool] Search failed: {error}"
+        )
+
         return "Web search failed."
 
     if not results:
+
         return "No search results found."
 
     formatted_results = []
 
-    for i, result in enumerate(results, start=1):
+    for i, result in enumerate(
+        results,
+        start=1
+    ):
 
         formatted_results.append(
             f"""
@@ -223,7 +391,9 @@ Description: {result["body"]}
 """
         )
 
-    return "\n".join(formatted_results)
+    return "\n".join(
+        formatted_results
+    )
 
 
 # ============================================================
@@ -237,9 +407,18 @@ messages = load_memory()
 # PROGRAM START
 # ============================================================
 
-print("Bluemies - Local AI")
-print("Intelligent tool routing is enabled.")
-print("Type 'exit' to quit.")
+print(
+    "Bluemies - Local AI"
+)
+
+print(
+    "Intelligent tool routing is enabled."
+)
+
+print(
+    "Type 'exit' to quit."
+)
+
 print()
 
 
@@ -249,30 +428,43 @@ print()
 
 while True:
 
-    user_input = input("You: ")
+    user_input = input(
+        "You: "
+    )
 
 
-    # --------------------------------------------------------
+    # ========================================================
     # EXIT
-    # --------------------------------------------------------
+    # ========================================================
 
     if user_input.lower() == "exit":
 
-        save_memory(messages)
+        save_memory(
+            messages
+        )
 
-        print("Conversation saved.")
-        print("Goodbye!")
+        print(
+            "Conversation saved."
+        )
+
+        print(
+            "Goodbye!"
+        )
 
         break
 
 
-    # --------------------------------------------------------
+    # ========================================================
     # ROUTE THE REQUEST
-    # --------------------------------------------------------
+    # ========================================================
 
-    route = route_request(user_input)
+    route = route_request(
+        user_input
+    )
 
-    print(f"[Router] Selected route: {route}")
+    print(
+        f"[Router] Selected route: {route}"
+    )
 
 
     # ========================================================
@@ -281,12 +473,14 @@ while True:
 
     if route == "WEB":
 
-        print("[Router] This question requires current information.")
+        print(
+            "[Router] This question requires current information."
+        )
 
-        search_results = web_search(user_input)
+        search_results = web_search(
+            user_input
+        )
 
-
-        # Add original user question
         messages.append(
             {
                 "role": "user",
@@ -294,8 +488,6 @@ while True:
             }
         )
 
-
-        # Add web results
         messages.append(
             {
                 "role": "user",
@@ -328,30 +520,87 @@ Now answer the user's original question using the search results.
 
     elif route == "CALCULATE":
 
-        print("[Router] Calculation detected.")
-        print("[Tool] Calculator is not implemented yet.")
-
-        messages.append(
-            {
-                "role": "user",
-                "content": user_input
-            }
+        print(
+            "[Router] Calculation detected."
         )
 
-        messages.append(
-            {
-                "role": "user",
-                "content": """
-The user requested a calculation.
+        print(
+            "[Tool] Calculator is running..."
+        )
 
-A dedicated calculator tool is not implemented yet.
-Answer the calculation as accurately as possible using your
-normal reasoning.
+        try:
 
-Do not claim that a calculator tool was used.
+            expression = clean_calculation_expression(
+                user_input
+            )
+
+            print(
+                f"[Tool] Expression: {expression}"
+            )
+
+            result = calculate(
+                expression
+            )
+
+            print(
+                f"[Tool] Result: {result}"
+            )
+
+            messages.append(
+                {
+                    "role": "user",
+                    "content": user_input
+                }
+            )
+
+            messages.append(
+                {
+                    "role": "user",
+                    "content": f"""
+A calculator tool was used to calculate the user's expression.
+
+Expression:
+{expression}
+
+Calculator result:
+{result}
+
+Give the user a concise answer using this result.
+
+Important:
+- Do not perform the calculation again yourself.
+- Do not change the calculator result.
+- Do not claim that a different result was obtained.
 """
-            }
-        )
+                }
+            )
+
+        except Exception as error:
+
+            print(
+                f"[Tool] Calculator error: {error}"
+            )
+
+            messages.append(
+                {
+                    "role": "user",
+                    "content": user_input
+                }
+            )
+
+            messages.append(
+                {
+                    "role": "user",
+                    "content": """
+The calculator could not understand the user's expression.
+
+Tell the user that the expression could not be calculated
+and ask them to provide a clearer mathematical expression.
+
+Do not invent a result.
+"""
+                }
+            )
 
 
     # ========================================================
@@ -360,7 +609,9 @@ Do not claim that a calculator tool was used.
 
     elif route == "CODE":
 
-        print("[Router] Programming request detected.")
+        print(
+            "[Router] Programming request detected."
+        )
 
         messages.append(
             {
@@ -390,8 +641,13 @@ Do not claim that an external code execution tool was used.
 
     elif route == "FILE":
 
-        print("[Router] File operation detected.")
-        print("[Tool] File tools are not implemented yet.")
+        print(
+            "[Router] File operation detected."
+        )
+
+        print(
+            "[Tool] File tools are not implemented yet."
+        )
 
         messages.append(
             {
@@ -422,7 +678,9 @@ Do not claim that you accessed a file if you did not.
 
     else:
 
-        print("[Router] Normal conversation.")
+        print(
+            "[Router] Normal conversation."
+        )
 
         messages.append(
             {
@@ -436,14 +694,17 @@ Do not claim that you accessed a file if you did not.
     # ASK QWEN
     # ========================================================
 
-    print("AI: ", end="", flush=True)
+    print(
+        "AI: ",
+        end="",
+        flush=True
+    )
 
     stream = chat(
         model=MODEL_NAME,
         messages=messages,
         stream=True
     )
-
 
     assistant_message = ""
 
@@ -485,4 +746,6 @@ Do not claim that you accessed a file if you did not.
     # SAVE MEMORY
     # ========================================================
 
-    save_memory(messages)
+    save_memory(
+        messages
+    )
