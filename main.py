@@ -10,6 +10,12 @@ import operator
 MEMORY_FILE = "memory.json"
 MODEL_NAME = "qwen3:4b"
 
+# Only files inside this directory can be accessed by Bluemies.
+FILES_DIRECTORY = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "files"
+)
+
 
 # ============================================================
 # CURRENT DATE AND TIME
@@ -48,7 +54,13 @@ When web search results are provided:
 - If the results conflict with your previous knowledge, prefer newer reliable web sources.
 - Do not invent information that is not supported by the search results.
 
+When file contents are provided:
+- Treat the file contents as the source of truth.
+- Do not claim to have accessed files that were not provided.
+- Do not invent file contents.
+
 Do not claim that you searched the web unless search results were actually provided.
+Do not claim that you accessed a file unless file contents were actually provided.
 """
 
 
@@ -159,8 +171,10 @@ Use FILE when the user wants to:
 - Read a file
 - Analyze a file
 - Search a file
-- Modify a file
-- Work with a document or local file
+- Understand a file
+- Inspect a document
+- Work with a local file
+- Ask about the contents of a local file
 
 Important:
 Return ONLY the label.
@@ -234,8 +248,10 @@ def calculate(expression):
 
     def evaluate(node):
 
-        # Numbers
-        if isinstance(node, ast.Constant):
+        if isinstance(
+            node,
+            ast.Constant
+        ):
 
             if isinstance(
                 node.value,
@@ -248,8 +264,10 @@ def calculate(expression):
                 "Invalid value."
             )
 
-        # Binary operations
-        if isinstance(node, ast.BinOp):
+        if isinstance(
+            node,
+            ast.BinOp
+        ):
 
             left = evaluate(
                 node.left
@@ -274,8 +292,10 @@ def calculate(expression):
                 right
             )
 
-        # Unary operations
-        if isinstance(node, ast.UnaryOp):
+        if isinstance(
+            node,
+            ast.UnaryOp
+        ):
 
             operand = evaluate(
                 node.operand
@@ -317,7 +337,6 @@ def clean_calculation_expression(text):
 
     expression = text.strip()
 
-    # Remove common phrases at the beginning
     prefixes = [
         "calculate ",
         "what is ",
@@ -330,7 +349,9 @@ def clean_calculation_expression(text):
 
     for prefix in prefixes:
 
-        if expression_lower.startswith(prefix):
+        if expression_lower.startswith(
+            prefix
+        ):
 
             expression = expression[
                 len(prefix):
@@ -338,7 +359,6 @@ def clean_calculation_expression(text):
 
             break
 
-    # Remove common question punctuation
     expression = expression.rstrip(
         "?.!"
     ).strip()
@@ -394,6 +414,168 @@ Description: {result["body"]}
     return "\n".join(
         formatted_results
     )
+
+
+# ============================================================
+# FILE TOOL
+# ============================================================
+
+def find_file(filename):
+
+    """
+    Find a file inside the allowed files directory.
+    """
+
+    filename = filename.strip()
+
+    # Prevent absolute paths
+    if os.path.isabs(filename):
+
+        return None
+
+    # Prevent path traversal such as ../
+    safe_path = os.path.abspath(
+        os.path.join(
+            FILES_DIRECTORY,
+            filename
+        )
+    )
+
+    allowed_directory = os.path.abspath(
+        FILES_DIRECTORY
+    )
+
+    if not safe_path.startswith(
+        allowed_directory + os.sep
+    ):
+
+        return None
+
+    if not os.path.isfile(
+        safe_path
+    ):
+
+        return None
+
+    return safe_path
+
+
+def read_file(filename):
+
+    """
+    Read a text file from the allowed files directory.
+    """
+
+    file_path = find_file(
+        filename
+    )
+
+    if file_path is None:
+
+        return None
+
+    try:
+
+        with open(
+            file_path,
+            "r",
+            encoding="utf-8"
+        ) as file:
+
+            return file.read()
+
+    except UnicodeDecodeError:
+
+        return None
+
+    except OSError:
+
+        return None
+
+
+def list_files():
+
+    """
+    List files available inside the allowed directory.
+    """
+
+    if not os.path.exists(
+        FILES_DIRECTORY
+    ):
+
+        os.makedirs(
+            FILES_DIRECTORY
+        )
+
+    files = []
+
+    for root, directories, filenames in os.walk(
+        FILES_DIRECTORY
+    ):
+
+        for filename in filenames:
+
+            full_path = os.path.join(
+                root,
+                filename
+            )
+
+            relative_path = os.path.relpath(
+                full_path,
+                FILES_DIRECTORY
+            )
+
+            files.append(
+                relative_path
+            )
+
+    return files
+
+
+def extract_filename(text):
+
+    """
+    Try to extract a filename from the user's request.
+    """
+
+    text = text.strip()
+
+    # First, look for a filename with a common extension.
+    words = text.replace(
+        '"',
+        ""
+    ).replace(
+        "'",
+        ""
+    ).split()
+
+    common_extensions = (
+        ".txt",
+        ".md",
+        ".py",
+        ".json",
+        ".csv",
+        ".html",
+        ".css",
+        ".js",
+        ".ts",
+        ".tsx",
+        ".jsx"
+    )
+
+    for word in words:
+
+        cleaned_word = word.strip(
+            ".,?!:;"
+        )
+
+        if cleaned_word.lower().endswith(
+            common_extensions
+        ):
+
+            return cleaned_word
+
+    return None
 
 
 # ============================================================
@@ -499,7 +681,7 @@ IMPORTANT:
 - Use these results as the primary source for current information.
 - Do not replace current web information with older information
   from your training data.
-- Pay attention to the dates in the search results.
+- Pay attention to dates in the search results.
 - If the results conflict with your previous knowledge,
   prefer the newer reliable web source.
 - Do not invent information that is not supported by the results.
@@ -604,6 +786,180 @@ Do not invent a result.
 
 
     # ========================================================
+    # FILE ROUTE
+    # ========================================================
+
+    elif route == "FILE":
+
+        print(
+            "[Router] File operation detected."
+        )
+
+        filename = extract_filename(
+            user_input
+        )
+
+
+        # ----------------------------------------------------
+        # No filename found
+        # ----------------------------------------------------
+
+        if filename is None:
+
+            print(
+                "[Tool] No filename detected."
+            )
+
+            available_files = list_files()
+
+            if available_files:
+
+                files_text = "\n".join(
+                    f"- {file}"
+                    for file in available_files
+                )
+
+            else:
+
+                files_text = (
+                    "No files are currently available."
+                )
+
+            messages.append(
+                {
+                    "role": "user",
+                    "content": user_input
+                }
+            )
+
+            messages.append(
+                {
+                    "role": "user",
+                    "content": f"""
+The user requested a file operation, but no specific
+filename could be identified.
+
+The files currently available inside the allowed files
+directory are:
+
+{files_text}
+
+Ask the user which file they want to work with.
+"""
+                }
+            )
+
+
+        # ----------------------------------------------------
+        # Filename found
+        # ----------------------------------------------------
+
+        else:
+
+            print(
+                f"[Tool] Requested file: {filename}"
+            )
+
+            file_contents = read_file(
+                filename
+            )
+
+
+            # ------------------------------------------------
+            # File not found
+            # ------------------------------------------------
+
+            if file_contents is None:
+
+                print(
+                    "[Tool] File could not be read."
+                )
+
+                available_files = list_files()
+
+                if available_files:
+
+                    files_text = "\n".join(
+                        f"- {file}"
+                        for file in available_files
+                    )
+
+                else:
+
+                    files_text = (
+                        "No files are currently available."
+                    )
+
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": user_input
+                    }
+                )
+
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": f"""
+The requested file could not be found or read.
+
+Requested file:
+{filename}
+
+Available files:
+
+{files_text}
+
+Tell the user that the file could not be found or read.
+Do not invent its contents.
+"""
+                    }
+                )
+
+
+            # ------------------------------------------------
+            # File successfully read
+            # ------------------------------------------------
+
+            else:
+
+                print(
+                    "[Tool] File read successfully."
+                )
+
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": user_input
+                    }
+                )
+
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": f"""
+A file tool successfully read the following file.
+
+Filename:
+{filename}
+
+File contents:
+--------------------
+{file_contents}
+--------------------
+
+Use the file contents to answer the user's original question.
+
+Important:
+- The file contents are the source of truth.
+- Do not invent information that is not present in the file.
+- Do not claim that you accessed any other files.
+"""
+                    }
+                )
+
+
+    # ========================================================
     # CODE ROUTE
     # ========================================================
 
@@ -630,43 +986,6 @@ Provide a clear and useful programming answer.
 Include code when appropriate.
 
 Do not claim that an external code execution tool was used.
-"""
-            }
-        )
-
-
-    # ========================================================
-    # FILE ROUTE
-    # ========================================================
-
-    elif route == "FILE":
-
-        print(
-            "[Router] File operation detected."
-        )
-
-        print(
-            "[Tool] File tools are not implemented yet."
-        )
-
-        messages.append(
-            {
-                "role": "user",
-                "content": user_input
-            }
-        )
-
-        messages.append(
-            {
-                "role": "user",
-                "content": """
-The user requested a file-related operation.
-
-A dedicated file tool is not implemented yet.
-Explain what information or file would be needed to complete
-the request.
-
-Do not claim that you accessed a file if you did not.
 """
             }
         )
